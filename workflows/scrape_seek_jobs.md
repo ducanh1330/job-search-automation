@@ -11,58 +11,69 @@ deliver a formatted Excel workbook that tracks new and closed listings across ru
 - `url` — a single Seek search URL to scrape as-is, instead of partitioning. Optional.
 - `out` — path for the `.xlsx`. Optional.
 
-No API keys. Nothing in `.env` is used by this workflow.
+**`FIRECRAWL_API_KEY` in `.env` is required** for `--firecrawl`, which is the only fetch
+path that reliably works (see Cloudflare below). It is the sole variable any tool reads.
+Costs ~1 credit per page. The `--html` mode needs no key but requires manually saved pages.
 
 ## Tools Used
 | Step | Tool | Purpose |
 |------|------|---------|
 | 1 | `tools/seek_client.py` | Shared library: HTTP, Cloudflare detection, redux parsing, pagination. Not a CLI. |
-| 2 | `tools/seek_firecrawl.py` | Firecrawl fetcher. Duck-types SeekClient. **The working backend** — see Cloudflare below. |
-| 3 | `tools/seek_browser.py` | Playwright fallback fetcher. Duck-types SeekClient. Did not defeat Cloudflare. |
-| 4 | `tools/scrape_seek_jobs.py` | Sweep Seek into `.tmp/seek_jobs.json` with coverage diagnostics. |
-| 5 | `tools/enrich_job_details.py` | Add work-rights/visa, closing date and ad body from each job page. |
-| 6 | `tools/export_jobs_excel.py` | Turn that JSON into a formatted, tracked `.xlsx`. |
-| — | `tools/export_jobs_html.py` | Optional browsable HTML version of the same data. |
+| 2 | `tools/seek_firecrawl.py` | Firecrawl fetcher with on-disk page cache. Duck-types SeekClient. **The working backend.** |
+| 3 | `tools/scrape_seek_jobs.py` | Sweep Seek into JSON with coverage diagnostics. Checkpoints after each partition. |
+| 4 | `tools/enrich_job_details.py` | Add work-rights/visa and ad body from each job page. Caches every fetch. |
+| 5 | `tools/export_jobs_excel.py` | Turn that JSON into a formatted, tracked `.xlsx`. |
 
 ## Steps
 1. Confirm inputs. Defaults cover "IT jobs in Melbourne" — ask only if the user wants a different field or city.
 2. Scrape. Prefer `--firecrawl`; plain HTTP is usually blocked (see Cloudflare below):
    ```
-   # a) Firecrawl -- the reliable path. ~1 credit per page.
-   python tools/scrape_seek_jobs.py --firecrawl --classification 6281 --where "All Melbourne VIC"
+   # a) a narrow keyword URL -- by far the best value, see below
+   python tools/scrape_seek_jobs.py --firecrawl \
+       --url "https://au.seek.com/it-internship-jobs/in-Melbourne-VIC-3000" --out .tmp/seek_narrow.json
 
-   # b) one narrow search URL as-is
-   python tools/scrape_seek_jobs.py --firecrawl --url "https://au.seek.com/it-internship-jobs/in-Melbourne-VIC-3000"
+   # b) broad classification sweep. --max-partitions caps the spend on test runs.
+   python tools/scrape_seek_jobs.py --firecrawl --classification 6281 \
+       --where "All Melbourne VIC" --max-partitions 5 --out .tmp/seek_full.json
 
    # c) free, no key -- parse pages saved from a browser
    python tools/scrape_seek_jobs.py --html ".tmp/saved/*.html"
    ```
-   Progress goes to stderr; stdout is a JSON summary.
+   Progress goes to stderr; stdout is a JSON summary. Pages are cached for 6 hours, so a
+   re-run after an interruption costs nothing for pages already fetched (`--no-cache` to force).
 3. Read the JSON summary. Check `coverage_pct` and `warnings` before continuing. If `ok` is false, see Edge Cases.
-4. Enrich with work-rights/visa and closing dates. Only early-career matches by default,
-   and every page is cached, so re-runs are free:
+4. Enrich with work-rights/visa. Only early-career matches by default, and every page is
+   cached, so re-classifying after a rule change is free:
    ```
-   python tools/enrich_job_details.py --input .tmp/seek_jobs.json --out .tmp/seek_jobs.json
+   python tools/enrich_job_details.py --input .tmp/seek_narrow.json .tmp/seek_full.json \
+       --out .tmp/seek_merged.json
    ```
-   **Skipping this leaves Work Rights as "Not checked" and Tags empty** — both derive from
-   the ad body, which the search listing does not contain.
+   **Skipping this leaves Work Rights as "Not checked"** — it derives from the ad body,
+   which the search listing does not contain.
 5. Export:
    ```
-   python tools/export_jobs_excel.py --input .tmp/seek_jobs.json --out "Seek IT Internships Melbourne.xlsx"
+   python tools/export_jobs_excel.py --input .tmp/seek_merged.json --out "Seek IT Internships Melbourne.xlsx"
    ```
+   Both step 4 and step 5 accept several `--input` files and merge them, de-duplicating by job id.
 6. Report to the user: early-career matches, new since last run, coverage %, the work-rights
    breakdown, and any warnings.
 
 ## Derived columns
 These are inferred by `export_jobs_excel.py`, not supplied by Seek. Treat them as leads, not facts.
 - **Employment** — `work_type` with `work_arrangement` folded in: `Full time (Hybrid)`.
-- **Work Rights** — classified from ad text by ordered rules; `Work Rights Detail` carries the
-  exact sentence so the call can be checked. `Not stated` means unknown, not permissive, and
-  `Not checked` means the job was never enriched. `PR or citizen required` and `No sponsorship`
-  are filled red, since they can disqualify an applicant outright.
+- **Position** — one label (`Internship`, `Graduate Program`, `Junior`, …) collapsed from the
+  matched terms, most specific first.
+- **Work Rights** — classified from ad text by ordered rules. `Not stated` means unknown, not
+  permissive; `Not checked` means the job was never enriched. `PR or citizen required`,
+  `No sponsorship` and `Student visa not accepted` are filled red; `Student visa accepted` and
+  `Sponsorship available` are filled green. The evidence excerpt is kept in the JSON
+  (`work_rights_evidence`) but is not a sheet column — see the ordering gotcha below for why
+  reading it matters.
 - **Experience** — banded from explicit year mentions; falls back to `0-2 yrs` for early-career matches.
-- **Tags** — tech skills matched against the ad body. Empty until the job is enriched.
 - **Salary** — literal `N/A` when the employer published none, so missing reads as absent, not skipped.
+
+Closed and expired listings are dropped from the sheet entirely rather than shown greyed out;
+the Run Summary reports how many were removed.
 
 ## Expected Output
 An `.xlsx` with three sheets:
@@ -73,6 +84,26 @@ An `.xlsx` with three sheets:
 State lives in `.tmp/seek_seen.json` (first/last seen per job id). Delete it to reset tracking.
 
 ## Edge Cases & Gotchas
+
+- **A narrow keyword search beats a broad sweep, by a wide margin.** The targeted internship
+  URL returned **42 early-career roles for 2 credits**. Sweeping 897 general ICT listings cost
+  **39 credits and found 22**. Only ~2.5% of ICT listings are early-career, so the classification
+  sweep spends most of its budget on senior roles. Start narrow; sweep only to fill gaps.
+
+- **Work-rights rule order decides correctness, not just precision.** Ads aimed at international
+  students routinely mention PR in an aside — *"Hold a Student Visa (Subclass 500)… if you are a
+  citizen or Permanent Resident, click here"*. Matching the PR rule first labelled a
+  student-visa program `PR or citizen required`, i.e. exactly backwards, hiding the one role
+  that fit. Student-visa rules therefore run **before** the PR rule. When adding rules, put the
+  more specific case first and re-check the evidence excerpts, not just the counts.
+
+- **Firecrawl's free tier allows ~10 requests/minute.** At `--delay 1` a sweep died on a 429 at
+  partition 11 and lost everything it had paid for. The default is now 6.5s, and 429s wait out a
+  full minute window (honouring `Retry-After`). Do not lower it.
+
+- **Never let a long run hold results only in memory.** The sweep now checkpoints after every
+  partition and caches every page, because two separate interruptions each destroyed ~35–90
+  credits of collected data that had never been written to disk.
 
 - **Cloudflare challenge (the big one).** Seek is behind Cloudflare. Sweeping too
   fast earns an IP-level managed challenge: HTTP 403, header `Cf-Mitigated: challenge`,
@@ -179,3 +210,9 @@ State lives in `.tmp/seek_seen.json` (first/last seen per job id). Delete it to 
   and centred work-rights evidence on the matched phrase. Removed the Playwright backend
   and `curl_cffi` — neither ever beat Cloudflare, and both were dead weight once
   Firecrawl worked.
+- 2026-08-14 — corrected this doc: it still claimed no API keys were needed, and listed two
+  tools that had been deleted. Added `--max-partitions`, the page cache, per-partition
+  checkpointing and multi-`--input` merging. Fixed Firecrawl pacing after a 429 killed a run.
+  Reordered the work-rights rules so student-visa ads are not mislabelled `PR or citizen
+  required` — the previous order inverted the meaning of the roles most relevant to an
+  international applicant.

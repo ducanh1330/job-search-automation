@@ -106,7 +106,11 @@ POSITION_ORDER = [
 
 # Work-rights values that should stand out: these are the ones that can
 # disqualify an applicant, so they get a warning fill rather than plain text.
-BLOCKING_RIGHTS = {"PR or citizen required", "No sponsorship"}
+BLOCKING_RIGHTS = {"PR or citizen required", "No sponsorship", "Student visa not accepted"}
+
+# Values worth highlighting positively -- these are the ones that open a role up
+# to a visa holder rather than closing it.
+FAVOURABLE_RIGHTS = {"Student visa accepted", "Sponsorship available"}
 
 HEADER_FILL = PatternFill("solid", fgColor="1F3864")
 HEADER_FONT = Font(bold=True, color="FFFFFF")
@@ -115,6 +119,8 @@ CLOSED_FONT = Font(color="9C9C9C", italic=True)
 LINK_FONT = Font(color="0563C1", underline="single")
 BLOCKING_FILL = PatternFill("solid", fgColor="FCE4E4")
 BLOCKING_FONT = Font(color="9C2B2B", bold=True)
+FAVOURABLE_FILL = PatternFill("solid", fgColor="DDEFE0")
+FAVOURABLE_FONT = Font(color="1E6B34", bold=True)
 
 # Every cell gets ruled on all four sides so columns and rows read as a grid,
 # rather than relying on Excel's non-printing background gridlines.
@@ -326,11 +332,17 @@ def _write_sheet(ws, rows: list) -> None:
             title_cell.hyperlink = job["job_url"]
             title_cell.font = LINK_FONT
 
-        # Flag the work-rights values that can disqualify an applicant outright.
-        if job.get("work_rights") in BLOCKING_RIGHTS:
+        # Flag work rights in both directions: red for values that disqualify an
+        # applicant outright, green for ones that explicitly open the role up.
+        rights = job.get("work_rights")
+        if rights in BLOCKING_RIGHTS:
             cell = ws.cell(row=r, column=RIGHTS_COLUMN)
             cell.fill = BLOCKING_FILL
             cell.font = BLOCKING_FONT
+        elif rights in FAVOURABLE_RIGHTS:
+            cell = ws.cell(row=r, column=RIGHTS_COLUMN)
+            cell.fill = FAVOURABLE_FILL
+            cell.font = FAVOURABLE_FONT
 
         for col in WRAP_COLUMNS:
             ws.cell(row=r, column=col).alignment = Alignment(wrap_text=True, vertical="top")

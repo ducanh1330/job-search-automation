@@ -34,9 +34,25 @@ from seek_client import TMP_DIR, parse_redux  # noqa: E402
 
 CACHE_DIR = os.path.join(TMP_DIR, "details_cache")
 
-# Ordered most-specific first: the first rule that matches wins, so an explicit
-# "no sponsorship" beats a generic "right to work" mention in the same ad.
+# Ordered most-specific first: the first rule that matches wins.
+#
+# Student-visa rules come before the PR rule deliberately. Ads aimed at
+# international students routinely name PR in a "if you are a citizen or
+# Permanent Resident, apply here instead" aside, and matching that first
+# inverts the meaning -- labelling a student-visa program as PR-only, which
+# would make exactly the wrong candidate skip it.
 RULES = [
+    ("Student visa not accepted", [
+        r"\b(not|cannot|unable to|do not|won'?t)\s+(be able to\s+)?(accept|consider|hire)\w*"
+        r"[^.]{0,40}\bstudent visa\b",
+        r"\bno student visa\b",
+    ]),
+    ("Student visa accepted", [
+        r"\b(hold|holding|holds|have|having|must have|currently on)\b[^.]{0,60}\bstudent visa\b",
+        r"\bstudent visa\b[^.]{0,30}\bsubclass 500\b|\bsubclass 500\b",
+        r"\btemporary graduate visa\b|\bsubclass 485\b|\b485 visa\b",
+        r"\binternational students?\b[^.]{0,60}\b(welcome|encouraged|eligible|apply)\b",
+    ]),
     ("PR or citizen required", [
         r"\b(permanent resident|australian citizen|pr or citizen|citizen or permanent)\w*\b",
         r"\bpermanent residency\b",
@@ -57,10 +73,6 @@ RULES = [
         r"\bright to work\b",
         r"\bwork authorisation\b",
         r"\beligible to work in australia\b",
-    ]),
-    ("Student visa considered", [
-        r"\bstudent visa\b",
-        r"\bcurrently studying\b.{0,60}\bvisa\b",
     ]),
 ]
 
