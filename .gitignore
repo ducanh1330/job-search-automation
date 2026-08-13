@@ -1,0 +1,24 @@
+# Secrets
+.env
+credentials.json
+token.json
+
+# Temporary / regenerable
+.tmp/*
+!.tmp/.gitkeep
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Generated deliverables
+*.xlsx
