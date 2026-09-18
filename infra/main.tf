@@ -46,6 +46,12 @@ variable "schedule_expression" {
   default     = "cron(0 22 * * ? *)"
 }
 
+variable "schedule_enabled" {
+  description = "Whether the daily trigger is active. Off until a real Firecrawl key is set."
+  type        = bool
+  default     = false
+}
+
 resource "random_id" "suffix" {
   byte_length = 4
 }
@@ -161,6 +167,9 @@ resource "aws_cloudwatch_log_group" "lambda" {
 resource "aws_cloudwatch_event_rule" "daily" {
   name                = "${var.project}-daily"
   schedule_expression = var.schedule_expression
+  # Paused: no Firecrawl key is set yet, so scheduled runs would just fail and
+  # log noise. Set to true once a real key is applied.
+  state = var.schedule_enabled ? "ENABLED" : "DISABLED"
 }
 
 resource "aws_cloudwatch_event_target" "lambda" {
