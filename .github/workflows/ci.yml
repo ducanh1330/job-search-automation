@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install ruff
+        run: pip install ruff
+
+      - name: Lint (syntax errors and undefined names)
+        run: ruff check --select=E9,F63,F7,F82 .
+
+      - name: Style check (non-blocking)
+        run: ruff check . || true
+
+      - name: Byte-compile all modules
+        run: python -m compileall -q tools
