@@ -27,7 +27,10 @@ from openpyxl.utils import get_column_letter
 
 load_dotenv()
 
-TMP_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".tmp")
+TMP_DIR = os.environ.get(
+    "JOBSEARCH_TMP_DIR",
+    os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".tmp"),
+)
 
 # All word-boundary anchored so "internal"/"international" never match "intern".
 #

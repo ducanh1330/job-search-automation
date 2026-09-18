@@ -16,7 +16,10 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-TMP_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".tmp")
+TMP_DIR = os.environ.get(
+    "JOBSEARCH_TMP_DIR",
+    os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".tmp"),
+)
 
 
 def run(value: str) -> dict:

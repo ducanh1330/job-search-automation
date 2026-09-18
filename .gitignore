@@ -22,3 +22,11 @@ Thumbs.db
 
 # Generated deliverables
 *.xlsx
+
+# Terraform
+infra/build/
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+.terraform.lock.hcl
